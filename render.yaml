@@ -49,3 +49,9 @@ services:
         sync: false
       - key: DEMO_DEFAULT_MOTION_ID
         sync: false
+
+      # /admin/logs?key=... を保護する共有パスワード。未設定だと会話ログの
+      # 記録自体が丸ごと無効になる（server.mjs の logTurn を参照）— つまり
+      # このキーを設定するまで、匿名ログすら一切保存されない。
+      - key: ADMIN_KEY
+        sync: false

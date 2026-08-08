@@ -1,4 +1,6 @@
 import express from "express";
+import { appendFile, readFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 
 // ── Config ──────────────────────────────────────────────────
 
@@ -16,6 +18,10 @@ const DEMO_DEFAULTS = {
 };
 const LLM_PROVIDER = (process.env.LLM_PROVIDER || "openai").toLowerCase();
 const LLM_API_KEY = process.env.LLM_API_KEY;
+// Shared secret for /admin/logs — set in Render, never committed. Logging is
+// disabled outright without it, so a fresh checkout never writes conversation
+// data by accident.
+const ADMIN_KEY = process.env.ADMIN_KEY;
 const PRESENTER_TARGET = {
   avatarId: process.env.DEMO_FIXED_AVATAR_ID,
   sceneId: process.env.DEMO_FIXED_SCENE_ID,
@@ -1085,6 +1091,96 @@ app.delete(
   }),
 );
 
+// ── Anonymous conversation log ───────────────────────────────────────────
+// Purpose: let the operator review what visitors talk about, without being
+// able to identify who they are.
+//
+// What's stored: a per-device random id (generated client-side, never a name,
+// email, or IP), the turn's text, and a timestamp. What's never stored: name,
+// contact info, or anything that ties a conversation to a real identity.
+// Storage is opt-in at the infra level — ADMIN_KEY unset means logging never
+// runs, so a fresh checkout is silent by default.
+//
+// Caveat: this writes to the local filesystem, which Render's free tier does
+// not persist across deploys or restarts — treat this as a rolling window,
+// not an archive. Durable long-term storage would need an external database.
+const LOG_DIR = path.join(process.cwd(), "data");
+const LOG_FILE = path.join(LOG_DIR, "conversations.jsonl");
+
+async function logTurn({ visitorId, userText, botText }) {
+  if (!ADMIN_KEY) return; // Logging is off unless an operator opted in.
+  try {
+    await mkdir(LOG_DIR, { recursive: true });
+    const line =
+      JSON.stringify({
+        t: new Date().toISOString(),
+        visitorId,
+        userText,
+        botText,
+      }) + "\n";
+    await appendFile(LOG_FILE, line, "utf8");
+  } catch (err) {
+    // Never let a logging failure break the actual conversation.
+    console.error("log write failed:", err.message);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+}
+
+// GET /admin/logs?key=... — plain-text HTML viewer, gated by ADMIN_KEY.
+// Not linked from anywhere; the key is the only thing standing between this
+// and public access, so treat it like a password.
+app.get("/admin/logs", async (req, res) => {
+  if (!ADMIN_KEY || req.query.key !== ADMIN_KEY) {
+    res.status(404).send("Not found");
+    return;
+  }
+  let rows = [];
+  try {
+    const raw = await readFile(LOG_FILE, "utf8");
+    rows = raw
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .reverse(); // newest first
+  } catch {
+    rows = []; // No log file yet — nothing has been said since the last deploy.
+  }
+  const body = rows
+    .map(
+      (r) => `<div class="turn">
+        <div class="meta">${escapeHtml(r.visitorId).slice(0, 8)}…  ${escapeHtml(r.t)}</div>
+        <div class="user">${escapeHtml(r.userText)}</div>
+        <div class="bot">→ ${escapeHtml(r.botText)}</div>
+      </div>`,
+    )
+    .join("\n");
+  res.set("Cache-Control", "no-store").send(`<!doctype html>
+<meta charset="utf-8">
+<title>会話ログ（匿名）</title>
+<style>
+  body{font-family:-apple-system,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;background:#0b0b12;color:#f4f4f8}
+  h1{font-size:18px}
+  .note{color:#8f8fa8;font-size:12px;margin-bottom:20px}
+  .turn{padding:12px 0;border-bottom:1px solid #2a2a44}
+  .meta{color:#6f6f88;font-size:11px;margin-bottom:4px}
+  .user{color:#c9c9dd}
+  .bot{color:#f4f4f8;margin-top:2px}
+</style>
+<h1>会話ログ（匿名） — ${rows.length}件</h1>
+<p class="note">端末ごとのランダムIDのみ。名前・連絡先は保存していません。Renderの再デプロイ・再起動で消えます。</p>
+${body || "<p>まだ記録がありません。</p>"}`);
+});
+
 app.post(
   "/api/chatbots/:id/chat",
   // Every turn costs upstream quota, so cap it well below what a real
@@ -1103,9 +1199,18 @@ app.post(
       res.status(400).json({ error: "'messages' must be a non-empty array." });
       return;
     }
-    res.json(
-      await authedCall((token) => api.chatWithChatbot(id, messages, token)),
+    const reply = await authedCall((token) =>
+      api.chatWithChatbot(id, messages, token),
     );
+    // Fire-and-forget: never delay the visitor's reply for a log write.
+    const lastUser = messages.at(-1);
+    const userText = lastUser?.parts?.map((p) => p.text).join(" ") ?? "";
+    void logTurn({
+      visitorId: String(req.get("X-Visitor-Id") ?? "unknown").slice(0, 64),
+      userText,
+      botText: reply?.reply_text ?? "",
+    });
+    res.json(reply);
   }),
 );
 

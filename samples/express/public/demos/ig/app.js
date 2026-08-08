@@ -101,6 +101,54 @@ const lastPicked = new Map();
 /** Rolling chat history in the Connect chatbot's wire format. */
 const history = [];
 
+// ── Visitor identity & on-device history ────────────────────────────────
+// visitorId is a random value generated on this device — never a name, email,
+// or anything else that identifies a person. It exists so the operator's
+// anonymous log (server-side, see /admin/logs) can tell "same visitor,
+// multiple turns" from "many different visitors", nothing more. It is sent
+// only on chat requests, stored only in this browser's localStorage, and nothing
+// about it leaves the device except that opaque value.
+const VISITOR_ID_KEY = "pinkick_visitor_id";
+const TRANSCRIPT_KEY = "pinkick_transcript_v1";
+// Bound how much of the past this page keeps re-showing on return visits —
+// unbounded growth would slow the page and make old, half-remembered turns
+// resurface awkwardly.
+const TRANSCRIPT_MAX_TURNS = 20;
+
+function getVisitorId() {
+  let id = localStorage.getItem(VISITOR_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(VISITOR_ID_KEY, id);
+  }
+  return id;
+}
+const visitorId = getVisitorId();
+
+/** Reads the visitor's own on-device transcript. Corrupt/missing → empty. */
+function loadTranscript() {
+  try {
+    const raw = localStorage.getItem(TRANSCRIPT_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Persists one turn to the visitor's own device. Never touches the server. */
+function saveTurn(role, text) {
+  const turns = loadTranscript();
+  turns.push({ role, text });
+  const trimmed = turns.slice(-TRANSCRIPT_MAX_TURNS * 2);
+  try {
+    localStorage.setItem(TRANSCRIPT_KEY, JSON.stringify(trimmed));
+  } catch {
+    // Storage full or disabled (private browsing) — the visit still works,
+    // it just won't be remembered next time.
+  }
+}
+
 async function requestJson(path, init) {
   const response = await fetch(path, {
     ...init,
@@ -197,11 +245,19 @@ async function sendChat(message) {
   const window = CONFIG.historyTurns * 2;
   if (history.length > window) history.splice(0, history.length - window);
 
+  saveTurn("user", message);
+
   try {
     presenter.setThinking?.(true);
     const { reply_text: reply } = await requestJson(
       `/api/chatbots/${encodeURIComponent(CONFIG.chatbotId)}/chat`,
-      { method: "POST", body: JSON.stringify({ messages: history }) },
+      {
+        method: "POST",
+        // X-Visitor-Id lets the operator's anonymous log group turns by
+        // device without identifying anyone — see the comment above visitorId.
+        headers: { "X-Visitor-Id": visitorId },
+        body: JSON.stringify({ messages: history }),
+      },
     );
     presenter.setThinking?.(false);
 
@@ -212,6 +268,7 @@ async function sendChat(message) {
     history.push({ role: "assistant", parts: [{ type: "text", text: spoken }] });
     pendingBubble.textContent = spoken;
     delete pendingBubble.dataset.pending;
+    saveTurn("bot", spoken);
 
     await presenter.resumeAudioPlayback?.();
     await presenter.present(spoken);
@@ -324,12 +381,35 @@ presenter.addEventListener("CONNECT_TOKEN_EXPIRED", async () => {
   }
 });
 
+/**
+ * Redraws past turns from this device's own storage as plain bubbles — text
+ * only, never re-spoken. Also seeds `history` so the chatbot has the prior
+ * context on the visitor's very first message of this visit.
+ */
+function restoreTranscript() {
+  const turns = loadTranscript();
+  for (const turn of turns) {
+    addBubble(turn.role, turn.text);
+    if (turn.role === "user") {
+      history.push({ role: "user", parts: [{ type: "text", text: turn.text }] });
+    } else {
+      history.push({
+        role: "assistant",
+        parts: [{ type: "text", text: turn.text }],
+      });
+    }
+  }
+  const window = CONFIG.historyTurns * 2;
+  if (history.length > window) history.splice(0, history.length - window);
+}
+
 presenter.addEventListener("PRESENTER_STATUS", (event) => {
   if (event.detail?.status !== "Ready") return;
   stopElapsedTimer();
   presenter.hidden = false;
   showView("done");
   controls.hidden = false;
+  restoreTranscript();
 });
 
 async function start() {
