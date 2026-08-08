@@ -10,7 +10,10 @@
     />
     <meta name="theme-color" content="#0b0b12" />
     <title>pinkick_anime</title>
-    <link rel="stylesheet" href="style.css" />
+    <!-- Absolute path: server.mjs serves this file at both "/" (the Instagram bio
+         link) and "/demos/ig/". A relative path resolves against whichever URL
+         loaded it, so it would 404 at the root. -->
+    <link rel="stylesheet" href="/demos/ig/style.css" />
   </head>
   <body>
     <!-- The 3D stage fills the viewport. Everything else floats over it. -->
@@ -72,6 +75,6 @@
       </form>
     </div>
 
-    <script type="module" src="app.js"></script>
+    <script type="module" src="/demos/ig/app.js"></script>
   </body>
 </html>
