@@ -1,0 +1,22 @@
+# 認証情報。samples/express/.gitignore にも書いてあるが、リポジトリのルートでも
+# 除外しておく。ここに漏れがあると Perxona のパスワードが GitHub に載る。
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+node_modules/
+**/node_modules/
+
+.DS_Store
+**/.DS_Store
+*.log
+*.swp
+
+# サムネイル確認用に生成した一時ファイル
+samples/express/public/_scenes.html
+
+# 個人環境の設定
+.claude/settings.local.json

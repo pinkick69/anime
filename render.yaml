@@ -1,0 +1,45 @@
+# Render デプロイ設定。https://render.com のダッシュボードで
+# 「New +」→「Blueprint」からこのリポジトリを選ぶと読み込まれる。
+#
+# 起動に npm start を使わないのは意図的。samples/express の start スクリプトは
+# `node --env-file=.env server.mjs` で、prestart の check-env.mjs が .env の存在を
+# 必須にしている。本番では .env を置かず Render の環境変数を使うため、直接
+# node server.mjs を叩く。
+services:
+  - type: web
+    name: pinkick-ani-chat
+    runtime: node
+    # モノレポなので、この配下だけをビルド・起動する。
+    rootDir: samples/express
+    plan: free
+    region: singapore
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.mjs
+    healthCheckPath: /api/health
+    envVars:
+      # production にすると ETag が有効になり、静的ファイルがキャッシュされる。
+      - key: NODE_ENV
+        value: production
+      # Render が割り当てるポートを server.mjs がそのまま使う。
+      - key: PORT
+        value: 10000
+
+      # ── 以下は Render のダッシュボードで各自入力する（sync: false）──
+      # 認証情報をこのファイルに書いてはいけない。Git に入る。
+      - key: PERXONA_API_BASE_URL
+        sync: false
+      - key: PERXONA_CONNECT_EMAIL
+        sync: false
+      - key: PERXONA_CONNECT_PASSWORD
+        sync: false
+
+      # 既定のアバター・シーン・ボイス。ページ側の CONFIG が優先されるので
+      # 必須ではないが、他のデモが参照するので入れておく。
+      - key: DEMO_DEFAULT_AVATAR_ID
+        sync: false
+      - key: DEMO_DEFAULT_SCENE_ID
+        sync: false
+      - key: DEMO_DEFAULT_VOICE_ID
+        sync: false
+      - key: DEMO_DEFAULT_MOTION_ID
+        sync: false

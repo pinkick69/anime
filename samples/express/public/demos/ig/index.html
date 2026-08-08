@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <!-- viewport-fit=cover so the stage reaches under the notch / home indicator.
+         user-scalable=no because pinch-zooming a 3D stage only ever breaks it. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#0b0b12" />
+    <title>pinkick_anime</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- The 3D stage fills the viewport. Everything else floats over it. -->
+    <main id="stage">
+      <sv-presenter hidden></sv-presenter>
+    </main>
+
+    <!-- Idle → loading → (hidden). One overlay, three states. -->
+    <div id="overlay" data-state="idle">
+      <div id="idle-view">
+        <p id="title">pinkick_anime</p>
+        <button id="start-btn" type="button">タップして起動</button>
+        <p class="note">音が出ます。マナーモードを解除してください。</p>
+      </div>
+
+      <div id="loading-view" hidden>
+        <div id="spinner" aria-hidden="true"></div>
+        <p id="loading-label">読み込み中…</p>
+        <p class="note">初回は1〜2分かかることがあります</p>
+      </div>
+
+      <div id="error-view" hidden>
+        <p id="error-label"></p>
+        <button id="retry-btn" class="secondary" type="button">やり直す</button>
+      </div>
+    </div>
+
+    <!-- Revealed only once the presenter reports Ready. -->
+    <div id="controls" hidden>
+      <!-- Recent turns, so a visitor who missed the audio can still follow. -->
+      <div id="transcript" aria-live="polite"></div>
+
+      <div id="quick">
+        <div id="lines"></div>
+        <!-- Inline SVG rather than a ■ glyph: the character renders at wildly
+             different sizes across fonts, and at button scale it read as a dot. -->
+        <button id="stop-btn" type="button" aria-label="停止">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
+          </svg>
+        </button>
+      </div>
+
+      <form id="chat-form" autocomplete="off">
+        <input
+          id="chat-input"
+          type="text"
+          maxlength="200"
+          placeholder="話しかけてみて"
+          enterkeyhint="send"
+          autocomplete="off"
+          autocapitalize="off"
+        />
+        <button id="chat-send" type="submit" aria-label="送信">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 12L5 5l6 7-6 7 15-7z" fill="currentColor" />
+          </svg>
+        </button>
+      </form>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
