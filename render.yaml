@@ -28,6 +28,12 @@ services:
       # 認証情報をこのファイルに書いてはいけない。Git に入る。
       - key: PERXONA_API_BASE_URL
         sync: false
+      # .env pins this to the asia CDN explicitly. Without it the server falls
+      # back to a region-less default (currently resolves to eu), which mints a
+      # presenter engine that can't use tokens issued against the asia Connect
+      # API — initialize() fails with an opaque "Response returned an error code".
+      - key: PRESENTER_URL
+        value: https://cdn.perxona.ai/asia/prod/latest/widget/entry/presenter.js
       - key: PERXONA_CONNECT_EMAIL
         sync: false
       - key: PERXONA_CONNECT_PASSWORD
